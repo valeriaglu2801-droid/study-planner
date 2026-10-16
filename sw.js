@@ -1,6 +1,6 @@
 /* Service worker: офлайн-работа. Сеть в приоритете (чтобы обновления доходили сразу),
    при отсутствии сети отдаём сохранённую копию. */
-const CACHE = 'uchoba-v1';
+const CACHE = 'uchoba-v2';
 const ASSETS = [
   './', 'index.html', 'manifest.json', 'css/styles.css',
   'js/util.js', 'js/store.js', 'js/today.js', 'js/timer.js', 'js/subjects.js',
@@ -29,7 +29,7 @@ self.addEventListener('fetch', e => {
 
   const network = new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('timeout')), 4000);
-    fetch(req, { cache: 'no-cache' }).then(res => { clearTimeout(timer); resolve(res); }, err => { clearTimeout(timer); reject(err); });
+    fetch(req).then(res => { clearTimeout(timer); resolve(res); }, err => { clearTimeout(timer); reject(err); });
   });
 
   e.respondWith(
