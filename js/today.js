@@ -150,26 +150,34 @@
   });
 
   /* ---------- окно блока ---------- */
+  // Окно работает либо с выбранным днём, либо с расписанием недели (App.ui.bsTarget)
+  const tgt = () => App.ui.bsTarget || { kind: 'day' };
+  const isWeek = () => tgt().kind === 'week';
+  const getList = () => isWeek() ? (App.state.weekly[tgt().dow] || []) : App.dayBlocks(App.ui.date);
+  const putList = list => {
+    if (isWeek()) { App.state.weekly[tgt().dow] = list; App.weeklyChanged(); }
+    else App.setDayBlocks(App.ui.date, list);
+  };
   function lastSubject() {
     const s = App.state.sessions[App.state.sessions.length - 1];
     return s && s.subjectId !== 'eng' ? s.subjectId : 'soc';
   }
 
   function blockSheet(b, preset) {
-    const k = App.ui.date, isNew = !b;
+    const k = App.ui.date, isNew = !b, wk = isWeek();
     const cur = b ? { ...b } : { type: (preset && preset.type) || 'study', dur: preset && preset.dur, subjectId: (preset && preset.subjectId) || lastSubject(), title: '' };
     if (!cur.dur) cur.dur = App.DEFAULT_DUR[cur.type];
     if (isNew) {
-      const slot = App.findSlot(k, cur.dur, App.planFrom(k));
-      cur.start = preset && preset.start != null ? preset.start : (slot != null ? slot : App.dayBounds(k).wake);
+      const slot = wk ? null : App.findSlot(k, cur.dur, App.planFrom(k));
+      cur.start = preset && preset.start != null ? preset.start : (slot != null ? slot : (wk ? 540 : App.dayBounds(k).wake));
     }
     App.ui.bs = { id: b ? b.id : null, type: cur.type, durTouched: !isNew };
     const subjOpts = App.state.subjects.filter(s => s.id !== 'eng').map(s => `<option value="${s.id}" ${cur.subjectId === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('');
     const chips = App.TYPE_ORDER.map(t => `<button class="chip ${cur.type === t ? 'on' : ''}" data-act="bsType" data-type="${t}">${App.TYPES[t].name}</button>`).join('');
     const durChips = [25, 50, 90, 120, 150].map(m => `<button class="chip" data-act="bsDur" data-v="${m}">${m}</button>`).join('');
-    const canStart = !isNew && App.isStudyType(cur.type) && k === App.todayKey();
+    const canStart = !wk && !isNew && App.isStudyType(cur.type) && k === App.todayKey();
     App.sheet(`
-      <h2>${isNew ? 'Новый блок' : 'Блок'}</h2>
+      <h2>${isNew ? 'Новый блок' : 'Блок'}${wk ? ' · ' + App.WD[tgt().dow].toLowerCase() + ', каждую неделю' : ''}</h2>
       <div class="chips" id="bsTypes">${chips}</div>
       <label class="field" id="bsSubjRow" ${cur.type === 'study' ? '' : 'hidden'}><span>Предмет</span><select id="bsSubj">${subjOpts}</select></label>
       <label class="field"><span>Название (необязательно)</span><input type="text" id="bsTitle" value="${esc(cur.title || '')}" placeholder="например: конспект, тема 5" maxlength="60"></label>
@@ -183,6 +191,7 @@
         ${isNew ? '' : `<button class="btn danger" data-act="bsDelete" aria-label="Удалить блок">${icon('trash', 'sm')}</button>`}
         <button class="btn primary" data-act="bsSave" style="flex:3">Сохранить</button>
       </div>
+      ${!wk && !isNew ? `<button class="btn block" data-act="bsRepeat">${icon('copy', 'sm')} Повторять каждую неделю</button>` : ''}
       ${canStart ? `<button class="btn block" data-act="startFromBlock" data-id="${b.id}">${icon('play', 'sm')} Начать этот блок на таймере</button>` : ''}
     `, () => updateHint());
   }
@@ -193,14 +202,14 @@
     let t = dur ? `Закончится в ${fmt(Math.min(start + dur, 1440))}.` : '';
     if (start + dur > 1440) t += ' Блок обрежется по полуночи.';
     if (App.isStudyType(bs.type) && dur && dur < 50) t += ' Меньше 50 минут: в прогресс не засчитается.';
-    const clash = App.dayBlocks(App.ui.date).filter(b => b.id !== bs.id && start < b.start + b.dur && start + dur > b.start);
+    const clash = getList().filter(b => b.id !== bs.id && start < b.start + b.dur && start + dur > b.start);
     if (clash.length) t += ` Пересекается с «${App.blockTitle(clash[0])}».`;
     el.textContent = t;
   }
 
   Object.assign(App.actions, {
-    addBlock: () => blockSheet(null),
-    editBlock: el => { const b = App.dayBlocks(App.ui.date).find(x => x.id === el.dataset.id); if (b) blockSheet(b); },
+    addBlock: () => { App.ui.bsTarget = null; blockSheet(null); },
+    editBlock: el => { App.ui.bsTarget = null; const b = App.dayBlocks(App.ui.date).find(x => x.id === el.dataset.id); if (b) blockSheet(b); },
     bsType: el => {
       const bs = App.ui.bs; bs.type = el.dataset.type;
       document.querySelectorAll('#bsTypes .chip').forEach(c => c.classList.toggle('on', c.dataset.type === bs.type));
@@ -222,14 +231,23 @@
         type: bs.type, start, dur, title: val('bsTitle').trim(),
         subjectId: bs.type === 'study' ? val('bsSubj') : bs.type === 'english' ? 'eng' : null
       };
-      const blocks = App.dayBlocks(k).slice();
+      const blocks = getList().slice();
       if (bs.id) { const i = blocks.findIndex(b => b.id === bs.id); if (i >= 0) Object.assign(blocks[i], data); }
       else blocks.push({ id: App.uid(), ...data });
-      App.setDayBlocks(k, blocks); App.closeSheet(); App.render();
+      putList(blocks); App.closeSheet(); App.render();
     },
     bsDelete: () => {
-      const k = App.ui.date, id = App.ui.bs.id;
-      App.setDayBlocks(k, App.dayBlocks(k).filter(b => b.id !== id)); App.closeSheet(); App.render();
+      const id = App.ui.bs.id;
+      putList(getList().filter(b => b.id !== id)); App.closeSheet(); App.render();
+    },
+    bsRepeat: () => {
+      const b = App.dayBlocks(App.ui.date).find(x => x.id === App.ui.bs.id); if (!b) return;
+      if (App.state.days[App.ui.date].auto) return App.toast('Этот блок уже взят из расписания недели');
+      const dow = App.parseKey(App.ui.date).getDay(), list = (App.state.weekly[dow] || []).slice();
+      list.push({ id: App.uid(), type: b.type, subjectId: b.subjectId, title: b.title, start: b.start, dur: b.dur });
+      App.state.weekly[dow] = list; App.weeklyChanged();
+      App.closeSheet(); App.render();
+      App.toast('Блок добавлен в расписание: теперь он будет каждую неделю в этот день');
     },
     startFromBlock: el => {
       const b = App.dayBlocks(App.ui.date).find(x => x.id === el.dataset.id); if (!b) return;
@@ -237,6 +255,8 @@
       App.closeSheet(); App.go('timer');
     }
   });
+
+  App.blockSheet = blockSheet;
 
   /* ---------- быстрый ввод ---------- */
   const ALIASES = { soc: ['соц'], pol: ['полит'], phil: ['филос'], math: ['матем', 'матан', 'алгебр', 'геометр'], ukr: ['укр'], eng: ['англ', 'english', 'eng'] };

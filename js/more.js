@@ -63,6 +63,7 @@
 
   function menu() {
     const items = [
+      ['week', 'today', 'Расписание недели', 'Пары, которые повторяются каждую неделю'],
       ['guide', 'info', 'Как настроить', 'Экран «Домой», Фокусирование, Команда, Календарь'],
       ['settings', 'sliders', 'Настройки', 'Минимум блоков, подъём и отбой, звук, Команда'],
       ['backup', 'down', 'Резервная копия', 'Экспорт и импорт данных']
@@ -76,6 +77,21 @@
     return `${head('Как настроить')}
       <div class="note info">${icon('info', 'sm')}<div>Если ты новичок, иди сверху вниз. Каждый шаг займёт несколько минут.</div></div>
       <div>${GUIDE.map(([t, b], i) => `<details class="step" ${i === 0 ? 'open' : ''}><summary><span class="num">${i + 1}</span>${t}</summary><div class="body">${b}</div></details>`).join('')}</div>`;
+  }
+
+  function week() {
+    const order = [1, 2, 3, 4, 5, 6, 0];
+    const cards = order.map(dow => {
+      const list = (App.state.weekly[dow] || []).slice().sort((a, b) => a.start - b.start);
+      const rows = list.map(b => `<button class="li" style="width:100%;text-align:left" data-act="weekEdit" data-dow="${dow}" data-id="${b.id}">
+          <span class="pill" style="background:var(--c-${b.type});color:var(--k-${b.type})">${App.TYPES[b.type].name}</span>
+          <span class="grow">${esc(App.blockTitle(b))}</span><b class="nowrap">${App.fmt(b.start)}–${App.fmt(b.start + b.dur)}</b></button>`).join('');
+      return `<section class="card"><div class="row between"><h2>${App.WD[dow]}</h2><button class="btn sm" data-act="weekAdd" data-dow="${dow}">${icon('plus', 'sm')} Добавить</button></div>
+        <div class="list">${rows || '<div class="small muted">Пусто. Сюда можно вписать повторяющиеся занятия.</div>'}</div></section>`;
+    }).join('');
+    return `${head('Расписание недели')}
+      <div class="note info">${icon('info', 'sm')}<div>Эти занятия сами появляются в каждой неделе, начиная с 16 октября. Нажми на занятие, чтобы изменить время или убрать. Изменения применятся ко всем будущим дням, которые ты не правила вручную. Чтобы изменить только один день, открой его на экране «Сегодня».</div></div>
+      ${cards}`;
   }
 
   function settings() {
@@ -121,12 +137,17 @@
     </section>`;
   }
 
-  App.views.more = () => sub() === 'guide' ? guide() : sub() === 'settings' ? settings() : sub() === 'backup' ? backup() : menu();
+  App.views.more = () => sub() === 'week' ? week() : sub() === 'guide' ? guide() : sub() === 'settings' ? settings() : sub() === 'backup' ? backup() : menu();
 
   Object.assign(App.actions, {
     openMore: () => { App.ui.prevTab = App.ui.tab === 'more' ? App.ui.prevTab : App.ui.tab; App.ui.moreSub = null; App.go('more'); },
     moreOpen: el => { App.ui.moreSub = el.dataset.sub || null; App.render(); window.scrollTo(0, 0); },
     moreBack: () => { App.ui.moreSub = null; App.go(App.ui.prevTab || 'today'); },
+    weekAdd: el => { App.ui.bsTarget = { kind: 'week', dow: +el.dataset.dow }; App.blockSheet(null, { type: 'class' }); },
+    weekEdit: el => {
+      const dow = +el.dataset.dow; App.ui.bsTarget = { kind: 'week', dow };
+      const b = (App.state.weekly[dow] || []).find(x => x.id === el.dataset.id); if (b) App.blockSheet(b);
+    },
     setNum: el => {
       const lim = { minWeekday: [1, 12], minWeekend: [1, 12], breakMin: [3, 30] }[el.dataset.k];
       const s = App.state.settings, v = Math.max(lim[0], Math.min(lim[1], s[el.dataset.k] + +el.dataset.d));

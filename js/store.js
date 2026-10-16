@@ -22,6 +22,19 @@
     ['eng', 'Английский', '#f2d36b', 6]
   ];
 
+  // Постоянное расписание пар: ключ — день недели (0 = воскресенье). Выходные пустые.
+  const defaultWeekly = () => {
+    const b = (start, dur, title) => ({ id: App.uid(), type: 'class', subjectId: null, title, start: App.toMin(start), dur });
+    return {
+      0: [], 6: [],
+      1: [b('11:40', 80, 'Английский'), b('15:00', 80, 'Политология')],
+      2: [b('08:30', 80, 'Вышмат · лекция'), b('10:00', 80, 'Вышмат · семинар')],
+      3: [b('13:30', 80, 'Социология')],
+      4: [b('11:30', 90, 'Украинский язык')],
+      5: [b('10:00', 80, 'Социология'), b('11:40', 80, 'Английский')]
+    };
+  };
+
   App.defaultState = () => ({
     version: 1,
     seeded: false,
@@ -30,12 +43,14 @@
       minWeekday: 4, minWeekend: 3,
       wakeWd: '08:00', bedWd: '23:30', wakeWe: '11:00', bedWe: '00:30',
       breakMin: 10, sound: true, runShortcut: true, shortcutName: 'Deep Work',
-      endAlerts: true, lastBackup: null
+      endAlerts: true, lastBackup: null, weeklyFrom: '2026-10-16'
     },
     subjects: SUBJECTS.map(([id, name, color, norm]) => ({ id, name, color, examDate: '2026-12-10', goal: '', norm, topics: [] })),
     days: {}, templates: [], sessions: [],
     timer: { phase: 'idle' },
-    english: { words: [] }
+    english: { words: [] },
+    weekly: defaultWeekly(),
+    weeklyInit: true
   });
 
   const migrate = raw => {
@@ -49,6 +64,16 @@
     if (!Array.isArray(s.subjects) || !s.subjects.length) s.subjects = d.subjects;
     d.subjects.forEach(ds => { if (!s.subjects.find(x => x.id === ds.id)) s.subjects.push(ds); });
     s.subjects.forEach(x => { x.topics = Array.isArray(x.topics) ? x.topics : []; });
+    if (!s.weekly || typeof s.weekly !== 'object') s.weekly = d.weekly;
+    if (!raw.weeklyInit) {
+      // старые данные с примером дня: убираем пример, дальше дни собираются из расписания недели
+      Object.keys(s.days).forEach(k => {
+        const day = s.days[k]; if (!day || !Array.isArray(day.blocks)) { delete s.days[k]; return; }
+        day.blocks = day.blocks.filter(x => !x.sample);
+        if (!day.blocks.length) delete s.days[k];
+      });
+      s.sampleDay = null; s.weekly = d.weekly; s.weeklyInit = true;
+    }
     return s;
   };
 
@@ -56,7 +81,7 @@
     let raw = null;
     try { raw = JSON.parse(localStorage.getItem(KEY)); } catch (e) { /* пусто */ }
     App.state = raw && raw.subjects ? migrate(raw) : App.defaultState();
-    if (!App.state.seeded) { App.seedSample(); App.state.seeded = true; App.save(); }
+    App.state.seeded = true; App.save();
   };
   App.save = () => {
     try { localStorage.setItem(KEY, JSON.stringify(App.state)); App.storageFailed = false; }
@@ -86,8 +111,27 @@
 
   /* ----- Выборки ----- */
   App.subj = id => App.state.subjects.find(s => s.id === id);
-  App.dayBlocks = k => (App.state.days[k] && App.state.days[k].blocks) || [];
-  App.setDayBlocks = (k, blocks) => { App.state.days[k] = { blocks }; App.save(); };
+  // День берётся из расписания недели один раз, потом живёт сам по себе (его можно править).
+  App.dayBlocks = k => {
+    const d = App.state.days[k];
+    if (d) return d.blocks;
+    if (k >= App.state.settings.weeklyFrom) {
+      const w = App.state.weekly[App.parseKey(k).getDay()] || [];
+      if (w.length) {
+        const blocks = w.map(b => ({ ...b, id: App.uid() }));
+        App.state.days[k] = { blocks, auto: true }; App.save();
+        return blocks;
+      }
+    }
+    return [];
+  };
+  App.setDayBlocks = (k, blocks) => { App.state.days[k] = { blocks, auto: false }; App.save(); };
+  // Расписание недели изменилось: будущие дни, которые ты не правила вручную, пересоберутся
+  App.weeklyChanged = () => {
+    const t = App.todayKey();
+    Object.keys(App.state.days).forEach(k => { if (App.state.days[k].auto && k >= t) delete App.state.days[k]; });
+    App.save();
+  };
   App.minFor = k => App.isWeekend(k) ? App.state.settings.minWeekend : App.state.settings.minWeekday;
   App.blockUnits = b => App.isStudyType(b.type) ? Math.floor(b.dur / 50) : 0;
   App.plannedUnits = k => App.dayBlocks(k).reduce((n, b) => n + App.blockUnits(b), 0);
