@@ -87,6 +87,11 @@
     const typesUsed = App.TYPE_ORDER.map(t => `<span><i style="background:var(--c-${t})"></i>${App.TYPES[t].name}</span>`).join('');
     const eyebrow = isToday ? 'Сегодня' : past ? 'Прошедший день' : 'Другой день';
 
+    const habits = App.state.habits.map(h => {
+      const on = App.habitDone(h.id, k), st = App.habitStreak(h.id);
+      return `<button class="habit" data-act="habitToggle" data-id="${h.id}" aria-pressed="${on}"><span class="check ${on ? 'on' : ''}">${icon('check')}</span><span class="grow">${esc(h.title)}</span>${st ? `<span class="pill ${on ? 'ok' : ''}">${icon('flame', 'sm')} ${st} ${plural(st, ['день', 'дня', 'дней'])}</span>` : ''}</button>`;
+    }).join('');
+
     return `
     <header class="top">
       <div><div class="eyebrow">${eyebrow}</div><h1>${esc(App.dateLabel(k))}</h1></div>
@@ -113,6 +118,12 @@
       </div>
       <div class="pips">${pips}</div>
       ${note}${shortNote}
+    </section>
+
+    <section class="card">
+      <div class="row between"><h2>Каждый день</h2><button class="btn sm" data-act="habitsEdit">Изменить</button></div>
+      <div class="small muted" style="margin-top:-4px">Задачи без времени: сделай в любой момент дня и отметь.</div>
+      <div>${habits || '<div class="empty">Пока ничего нет. Нажми «Изменить» и добавь первую задачу.</div>'}</div>
     </section>
 
     <div class="actions">
@@ -257,6 +268,34 @@
   });
 
   App.blockSheet = blockSheet;
+
+  /* ---------- ежедневные задачи ---------- */
+  const habitSheet = () => {
+    const rows = App.state.habits.map(h => `<div class="li"><div class="grow">${esc(h.title)}</div><button class="xbtn" data-act="habitDel" data-id="${h.id}" aria-label="Удалить задачу">${icon('trash', 'sm')}</button></div>`).join('');
+    App.sheet(`
+      <h2>Задачи на каждый день</h2>
+      <p class="small muted">Это дела без времени: сделала в любой момент и отметила. Серия считает дни подряд.</p>
+      <div class="list">${rows || '<div class="small muted">Список пуст.</div>'}</div>
+      <form class="row" data-submit="habitAdd"><input type="text" name="t" placeholder="Например: чтение 20 минут" maxlength="60" autocomplete="off" style="flex:1"><button class="btn primary" style="padding:0 16px" aria-label="Добавить">${icon('plus')}</button></form>
+      <button class="btn block" data-act="closeSheet">Готово</button>`);
+  };
+  Object.assign(App.actions, {
+    habitToggle: el => {
+      const k = App.ui.date, L = App.state.habitLog;
+      L[k] = L[k] || {}; if (L[k][el.dataset.id]) delete L[k][el.dataset.id]; else L[k][el.dataset.id] = true;
+      App.save(); App.render();
+    },
+    habitsEdit: () => habitSheet(),
+    habitAdd: form => {
+      const v = form.elements.t.value.trim(); if (!v) return;
+      App.state.habits.push({ id: App.uid(), title: v }); App.save(); habitSheet(); App.render();
+      setTimeout(() => { const i = document.querySelector('form[data-submit="habitAdd"] input'); if (i) i.focus(); }, 30);
+    },
+    habitDel: el => {
+      if (!confirm('Удалить эту задачу? Отметки по ней тоже исчезнут.')) return;
+      App.state.habits = App.state.habits.filter(h => h.id !== el.dataset.id); App.save(); habitSheet(); App.render();
+    }
+  });
 
   /* ---------- быстрый ввод ---------- */
   const ALIASES = { soc: ['соц'], pol: ['полит'], phil: ['филос'], math: ['матем', 'матан', 'алгебр', 'геометр'], ukr: ['укр'], eng: ['англ', 'english', 'eng'] };

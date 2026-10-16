@@ -50,7 +50,9 @@
     timer: { phase: 'idle' },
     english: { words: [] },
     weekly: defaultWeekly(),
-    weeklyInit: true
+    weeklyInit: true,
+    habits: [{ id: 'book', title: 'Книга: читать или слушать' }],
+    habitLog: {}
   });
 
   const migrate = raw => {
@@ -65,6 +67,8 @@
     d.subjects.forEach(ds => { if (!s.subjects.find(x => x.id === ds.id)) s.subjects.push(ds); });
     s.subjects.forEach(x => { x.topics = Array.isArray(x.topics) ? x.topics : []; });
     if (!s.weekly || typeof s.weekly !== 'object') s.weekly = d.weekly;
+    if (!Array.isArray(raw.habits)) s.habits = d.habits;
+    if (!s.habitLog || typeof s.habitLog !== 'object') s.habitLog = {};
     if (!raw.weeklyInit) {
       // старые данные с примером дня: убираем пример, дальше дни собираются из расписания недели
       Object.keys(s.days).forEach(k => {
@@ -175,6 +179,15 @@
     const met = App.metDates(); let best = 0, run = 0, prev = null;
     met.forEach(k => { run = prev && App.diffDays(prev, k) === 1 ? run + 1 : 1; best = Math.max(best, run); prev = k; });
     return best;
+  };
+
+  /* ----- Ежедневные задачи без времени ----- */
+  App.habitDone = (id, k) => !!(App.state.habitLog[k] && App.state.habitLog[k][id]);
+  App.habitStreak = id => {
+    let k = App.todayKey(), n = 0;
+    if (!App.habitDone(id, k)) k = App.addDays(k, -1);
+    while (App.habitDone(id, k)) { n++; k = App.addDays(k, -1); }
+    return n;
   };
 
   /* ----- Поиск свободного окна для блока ----- */
